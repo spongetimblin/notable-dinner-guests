@@ -6,7 +6,7 @@
 const API_CONFIG = {
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
     model: 'gemini-2.5-flash',
-    maxTokens: 2048,
+    maxTokens: 8192,
     temperature: 0.8
 };
 
