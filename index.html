@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notable Dinner Guests</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Notable Dinner Guests</h1>
+            <p class="tagline">Bring history's greatest minds to your table</p>
+        </header>
+
+        <!-- API Key Setup (shown first time) -->
+        <section id="api-setup" class="card api-setup">
+            <h2>Welcome! Let's Get Started</h2>
+            <p>To generate conversations, you'll need a free Google Gemini API key.</p>
+            <ol class="setup-steps">
+                <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a></li>
+                <li>Sign in with your Google account</li>
+                <li>Click "Create API Key"</li>
+                <li>Copy the key and paste it below</li>
+            </ol>
+            <div class="api-input-group">
+                <input type="password" id="api-key-input" placeholder="Paste your API key here" autocomplete="off">
+                <button id="save-api-key" class="btn btn-primary">Save Key</button>
+            </div>
+            <p class="note">Your key is stored locally in your browser and never sent anywhere except Google's API.</p>
+        </section>
+
+        <!-- Main App (hidden until API key is set) -->
+        <main id="main-app" class="main-app hidden">
+            <!-- Guest Selection -->
+            <section class="card">
+                <div class="section-header">
+                    <div>
+                        <h2>Choose Your Dinner Guests</h2>
+                        <p class="instruction">Select 2-5 notable figures to join your dinner party.</p>
+                    </div>
+                    <button id="add-custom-guest-btn" class="btn btn-secondary btn-small">+ Add Custom Guest</button>
+                </div>
+                <div id="guest-grid" class="guest-grid">
+                    <!-- Guests will be populated by JavaScript -->
+                </div>
+                <p class="selection-count">Selected: <span id="selected-count">0</span>/5</p>
+            </section>
+
+            <!-- Topic Selection -->
+            <section class="card">
+                <h2>Choose a Topic</h2>
+                <p class="instruction">What would you like your guests to discuss?</p>
+                <div class="topic-selection">
+                    <div class="topic-buttons" id="topic-buttons">
+                        <!-- Topic buttons will be populated by JavaScript -->
+                    </div>
+                    <div class="custom-topic">
+                        <input type="text" id="custom-topic" placeholder="Or enter your own topic...">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Generate Button -->
+            <section class="generate-section">
+                <button id="generate-btn" class="btn btn-large btn-primary" disabled>
+                    Start the Conversation
+                </button>
+            </section>
+
+            <!-- Conversation Display -->
+            <section id="conversation-section" class="card conversation-section hidden">
+                <div class="conversation-header">
+                    <h2>The Dinner Conversation</h2>
+                    <button id="new-conversation-btn" class="btn btn-secondary">New Conversation</button>
+                </div>
+                <div id="conversation-display" class="conversation-display">
+                    <!-- Conversation will appear here -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Settings Toggle -->
+        <button id="settings-toggle" class="settings-toggle hidden" title="Settings">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1m16.5-5.5l-4.2 4.2m-4.6 4.6L4.5 17.5m13-11l-4.2 4.2m-4.6 4.6L4.5 6.5"></path>
+            </svg>
+        </button>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2>Settings</h2>
+                <div class="setting-group">
+                    <label for="settings-api-key">Gemini API Key</label>
+                    <input type="password" id="settings-api-key" placeholder="Your API key">
+                    <button id="update-api-key" class="btn btn-primary">Update Key</button>
+                </div>
+                <button id="close-settings" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+
+        <!-- Add Custom Guest Modal -->
+        <div id="custom-guest-modal" class="modal hidden">
+            <div class="modal-content modal-content-wide">
+                <h2>Add a Historical Figure</h2>
+                <p class="modal-description">Enter the name of any historical or deceased notable person. We'll look up their info automatically.</p>
+                <form id="custom-guest-form">
+                    <div class="form-group">
+                        <label for="custom-guest-name">Name</label>
+                        <input type="text" id="custom-guest-name" placeholder="e.g., Leonardo da Vinci" required>
+                    </div>
+                    <p id="custom-guest-error" class="error-message hidden"></p>
+                    <div class="form-actions">
+                        <button type="button" id="cancel-custom-guest" class="btn btn-secondary">Cancel</button>
+                        <button type="submit" id="add-guest-submit" class="btn btn-primary">Add Guest</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p>Your guests are gathering their thoughts...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/guests.js"></script>
+    <script src="js/topics.js"></script>
+    <script src="js/sources.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

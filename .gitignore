@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+
+# Optimization checklist (not needed in production)
+OPTIMIZATION-CHECKLIST.md
