@@ -14,6 +14,33 @@ const WikipediaAPI = {
      * @param {string} query - Search query
      * @returns {Promise<Array>} Array of suggestion objects with title and description
      */
+    /**
+     * Check if a Wikipedia title is likely a person (not an event, place, work, etc.)
+     * @param {string} title - Wikipedia page title
+     * @returns {boolean} True if likely a person
+     */
+    isLikelyPerson(title) {
+        // Patterns that indicate non-person pages
+        const nonPersonPatterns = [
+            /^(Murder|Death|Assassination|Killing|Execution) of /i,
+            /^(List|Timeline|History|Bibliography|Discography|Filmography) of /i,
+            /\((album|film|movie|song|book|novel|TV series|band|company|organization)\)$/i,
+            /\((disambiguation)\)$/i,
+            /^The .+ (album|film|movie|song|book|novel|TV series)$/i,
+            / (album|film|movie|song|discography|filmography|bibliography)$/i,
+            /^(Battle|Siege|War|Treaty|Act) of /i,
+            / (massacre|riot|revolution|rebellion|uprising|incident|scandal|controversy|conspiracy|trial|case)$/i,
+            /^(University|College|School|Institute|Museum|Library|Hospital|Church|Cathedral) of /i,
+        ];
+
+        for (const pattern of nonPersonPatterns) {
+            if (pattern.test(title)) {
+                return false;
+            }
+        }
+        return true;
+    },
+
     async getAutocompleteSuggestions(query) {
         if (!query || query.length < 2) return [];
 
@@ -22,7 +49,7 @@ const WikipediaAPI = {
                 action: 'query',
                 list: 'search',
                 srsearch: query,
-                srlimit: 8,
+                srlimit: 15, // Fetch more to filter down to 8 people
                 srprop: 'snippet',
                 format: 'json',
                 origin: '*'
@@ -33,14 +60,18 @@ const WikipediaAPI = {
 
             if (!data.query?.search?.length) return [];
 
-            return data.query.search.map(result => ({
-                title: result.title,
-                snippet: result.snippet
-                    .replace(/<[^>]*>/g, '') // Remove HTML tags
-                    .replace(/&quot;/g, '"')
-                    .replace(/&amp;/g, '&')
-                    .substring(0, 100)
-            }));
+            // Filter to likely people and limit to 8 results
+            return data.query.search
+                .filter(result => this.isLikelyPerson(result.title))
+                .slice(0, 8)
+                .map(result => ({
+                    title: result.title,
+                    snippet: result.snippet
+                        .replace(/<[^>]*>/g, '') // Remove HTML tags
+                        .replace(/&quot;/g, '"')
+                        .replace(/&amp;/g, '&')
+                        .substring(0, 100)
+                }));
         } catch (error) {
             console.warn('Wikipedia autocomplete failed:', error);
             return [];
