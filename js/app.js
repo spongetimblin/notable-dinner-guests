@@ -39,8 +39,13 @@ const elements = {
     customGuestName: null,
     customGuestError: null,
     addGuestSubmitBtn: null,
-    cancelCustomGuestBtn: null
+    cancelCustomGuestBtn: null,
+    autocompleteList: null
 };
+
+// Autocomplete state
+let autocompleteDebounceTimer = null;
+let autocompleteHighlightIndex = -1;
 
 /**
  * Initialize the application
@@ -92,6 +97,7 @@ function cacheElements() {
     elements.customGuestError = document.getElementById('custom-guest-error');
     elements.addGuestSubmitBtn = document.getElementById('add-guest-submit');
     elements.cancelCustomGuestBtn = document.getElementById('cancel-custom-guest');
+    elements.autocompleteList = document.getElementById('autocomplete-list');
 }
 
 /**
@@ -133,6 +139,14 @@ function setupEventListeners() {
     elements.customGuestForm.addEventListener('submit', handleAddCustomGuest);
     elements.customGuestModal.addEventListener('click', (e) => {
         if (e.target === elements.customGuestModal) closeCustomGuestModal();
+    });
+
+    // Autocomplete for custom guest name
+    elements.customGuestName.addEventListener('input', handleNameInput);
+    elements.customGuestName.addEventListener('keydown', handleAutocompleteKeydown);
+    elements.customGuestName.addEventListener('blur', () => {
+        // Delay hiding to allow click on autocomplete item
+        setTimeout(() => hideAutocomplete(), 150);
     });
 }
 
@@ -569,6 +583,8 @@ function closeCustomGuestModal() {
         elements.customGuestError.classList.add('hidden');
         elements.customGuestError.textContent = '';
     }
+    // Hide autocomplete
+    hideAutocomplete();
 }
 
 /**
@@ -585,23 +601,63 @@ async function handleAddCustomGuest(e) {
         return;
     }
 
+    // Hide autocomplete if visible
+    hideAutocomplete();
+
     // Show loading state
     elements.addGuestSubmitBtn.disabled = true;
-    elements.addGuestSubmitBtn.textContent = 'Looking up...';
+    elements.addGuestSubmitBtn.textContent = 'Checking...';
     elements.cancelCustomGuestBtn.disabled = true;
     hideCustomGuestError();
 
     try {
-        // Look up the person on Wikipedia
+        // First, check if the person is deceased
+        const deceasedCheck = await WikipediaAPI.checkIfDeceased(name);
+
+        if (!deceasedCheck.isDeceased) {
+            // Person appears to be alive or we couldn't determine
+            if (deceasedCheck.error === 'not_found') {
+                showCustomGuestError('Could not find this person on Wikipedia. Please check the spelling or try a more specific name.');
+            } else if (deceasedCheck.uncertain) {
+                showCustomGuestError('We could not verify if this person is deceased. This app is for historical figures only. Please try another name.');
+            } else {
+                showCustomGuestError('This person appears to still be living. Notable Dinner Guests is designed for conversations with historical figures who are no longer with us.');
+            }
+            return;
+        }
+
+        // Update button text for second lookup
+        elements.addGuestSubmitBtn.textContent = 'Adding...';
+
+        // Build era string from the deceased check results (these are the most reliable)
+        let era = 'Historical figure';
+        if (deceasedCheck.birthYear !== null && deceasedCheck.deathYear !== null) {
+            // Handle BC/BCE years (negative numbers)
+            if (deceasedCheck.birthYear < 0) {
+                const birthStr = Math.abs(deceasedCheck.birthYear) + ' BCE';
+                const deathStr = deceasedCheck.deathYear < 0
+                    ? Math.abs(deceasedCheck.deathYear) + ' BCE'
+                    : deceasedCheck.deathYear + ' CE';
+                era = `${birthStr} – ${deathStr}`;
+            } else {
+                era = `${deceasedCheck.birthYear}–${deceasedCheck.deathYear}`;
+            }
+        } else if (deceasedCheck.birthYear !== null) {
+            // Only birth year known
+            era = deceasedCheck.birthYear < 0
+                ? `${Math.abs(deceasedCheck.birthYear)} BCE – ?`
+                : `${deceasedCheck.birthYear}–?`;
+        } else if (deceasedCheck.deathYear !== null) {
+            // Only death year known
+            era = `?–${deceasedCheck.deathYear}`;
+        }
+
+        // Look up the person on Wikipedia for description
         const info = await WikipediaAPI.fetchPersonInfo(name);
 
-        let era = 'Historical figure';
         let description = 'Notable person';
 
         if (info) {
-            if (info.era) {
-                era = info.era;
-            }
             if (info.description) {
                 description = info.description;
             }
@@ -647,6 +703,177 @@ function showCustomGuestError(message) {
 function hideCustomGuestError() {
     elements.customGuestError.classList.add('hidden');
     elements.customGuestError.textContent = '';
+}
+
+/**
+ * Capitalize each word in a name
+ * @param {string} name - The name to capitalize
+ * @returns {string} Capitalized name
+ */
+function capitalizeName(name) {
+    return name
+        .split(' ')
+        .map(word => {
+            if (word.length === 0) return word;
+            // Handle special cases like "da", "de", "von", "van", "the"
+            const lowerWords = ['da', 'de', 'di', 'del', 'della', 'von', 'van', 'der', 'the', 'of'];
+            if (lowerWords.includes(word.toLowerCase())) {
+                return word.toLowerCase();
+            }
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        })
+        .join(' ')
+        // Always capitalize the first letter of the full name
+        .replace(/^./, c => c.toUpperCase());
+}
+
+/**
+ * Handle name input for autocomplete and capitalization
+ * @param {Event} e - Input event
+ */
+function handleNameInput(e) {
+    const input = e.target;
+    const cursorPosition = input.selectionStart;
+    const originalValue = input.value;
+
+    // Auto-capitalize
+    const capitalizedValue = capitalizeName(originalValue);
+
+    // Only update if changed and preserve cursor position
+    if (capitalizedValue !== originalValue) {
+        input.value = capitalizedValue;
+        // Restore cursor position
+        input.setSelectionRange(cursorPosition, cursorPosition);
+    }
+
+    // Debounce autocomplete search
+    clearTimeout(autocompleteDebounceTimer);
+    const query = input.value.trim();
+
+    if (query.length < 2) {
+        hideAutocomplete();
+        return;
+    }
+
+    autocompleteDebounceTimer = setTimeout(async () => {
+        await fetchAutocompleteSuggestions(query);
+    }, 300);
+}
+
+/**
+ * Fetch autocomplete suggestions from Wikipedia
+ * @param {string} query - Search query
+ */
+async function fetchAutocompleteSuggestions(query) {
+    try {
+        const suggestions = await WikipediaAPI.getAutocompleteSuggestions(query);
+
+        if (suggestions.length === 0) {
+            hideAutocomplete();
+            return;
+        }
+
+        showAutocomplete(suggestions);
+    } catch (error) {
+        console.warn('Autocomplete failed:', error);
+        hideAutocomplete();
+    }
+}
+
+/**
+ * Show autocomplete dropdown with suggestions
+ * @param {Array} suggestions - Array of suggestion objects
+ */
+function showAutocomplete(suggestions) {
+    autocompleteHighlightIndex = -1;
+
+    elements.autocompleteList.innerHTML = suggestions.map((suggestion, index) => `
+        <li data-index="${index}" data-title="${suggestion.title}">
+            <span class="autocomplete-title">${suggestion.title}</span>
+            <span class="autocomplete-snippet">${suggestion.snippet}...</span>
+        </li>
+    `).join('');
+
+    // Add click listeners to suggestions
+    elements.autocompleteList.querySelectorAll('li').forEach(li => {
+        li.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // Prevent blur from firing first
+            selectAutocompleteItem(li.dataset.title);
+        });
+    });
+
+    elements.autocompleteList.classList.remove('hidden');
+}
+
+/**
+ * Hide autocomplete dropdown
+ */
+function hideAutocomplete() {
+    elements.autocompleteList.classList.add('hidden');
+    elements.autocompleteList.innerHTML = '';
+    autocompleteHighlightIndex = -1;
+}
+
+/**
+ * Select an autocomplete item
+ * @param {string} title - Selected title
+ */
+function selectAutocompleteItem(title) {
+    elements.customGuestName.value = title;
+    hideAutocomplete();
+    elements.customGuestName.focus();
+}
+
+/**
+ * Handle keyboard navigation in autocomplete
+ * @param {KeyboardEvent} e - Keyboard event
+ */
+function handleAutocompleteKeydown(e) {
+    const items = elements.autocompleteList.querySelectorAll('li');
+
+    if (items.length === 0 || elements.autocompleteList.classList.contains('hidden')) {
+        return;
+    }
+
+    switch (e.key) {
+        case 'ArrowDown':
+            e.preventDefault();
+            autocompleteHighlightIndex = Math.min(autocompleteHighlightIndex + 1, items.length - 1);
+            updateAutocompleteHighlight(items);
+            break;
+
+        case 'ArrowUp':
+            e.preventDefault();
+            autocompleteHighlightIndex = Math.max(autocompleteHighlightIndex - 1, -1);
+            updateAutocompleteHighlight(items);
+            break;
+
+        case 'Enter':
+            if (autocompleteHighlightIndex >= 0 && autocompleteHighlightIndex < items.length) {
+                e.preventDefault();
+                selectAutocompleteItem(items[autocompleteHighlightIndex].dataset.title);
+            }
+            break;
+
+        case 'Escape':
+            hideAutocomplete();
+            break;
+    }
+}
+
+/**
+ * Update visual highlight on autocomplete items
+ * @param {NodeList} items - List of autocomplete items
+ */
+function updateAutocompleteHighlight(items) {
+    items.forEach((item, index) => {
+        if (index === autocompleteHighlightIndex) {
+            item.classList.add('highlighted');
+            item.scrollIntoView({ block: 'nearest' });
+        } else {
+            item.classList.remove('highlighted');
+        }
+    });
 }
 
 /**

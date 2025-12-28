@@ -48,3 +48,10 @@ Notable Dinner Guests/
     ├── api.js       # Gemini API integration
     └── app.js       # Main application logic
 ```
+
+## Deployment
+
+The app is hosted on GitHub Pages at: https://spongetimblin.github.io/notable-dinner-guests/
+
+**To update the live site after making changes:**
+Ask Claude to "commit and push my changes" and it will handle the Git commands for you.

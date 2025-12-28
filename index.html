@@ -110,7 +110,10 @@
                 <form id="custom-guest-form">
                     <div class="form-group">
                         <label for="custom-guest-name">Name</label>
-                        <input type="text" id="custom-guest-name" placeholder="e.g., Leonardo da Vinci" required>
+                        <div class="autocomplete-wrapper">
+                            <input type="text" id="custom-guest-name" placeholder="e.g., Leonardo da Vinci" required autocomplete="off">
+                            <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
+                        </div>
                     </div>
                     <p id="custom-guest-error" class="error-message hidden"></p>
                     <div class="form-actions">

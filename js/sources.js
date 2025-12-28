@@ -10,6 +10,189 @@ const WikipediaAPI = {
     baseUrl: 'https://en.wikipedia.org/w/api.php',
 
     /**
+     * Get autocomplete suggestions for a search query
+     * @param {string} query - Search query
+     * @returns {Promise<Array>} Array of suggestion objects with title and description
+     */
+    async getAutocompleteSuggestions(query) {
+        if (!query || query.length < 2) return [];
+
+        try {
+            const params = new URLSearchParams({
+                action: 'query',
+                list: 'search',
+                srsearch: query,
+                srlimit: 8,
+                srprop: 'snippet',
+                format: 'json',
+                origin: '*'
+            });
+
+            const response = await fetch(`${this.baseUrl}?${params}`);
+            const data = await response.json();
+
+            if (!data.query?.search?.length) return [];
+
+            return data.query.search.map(result => ({
+                title: result.title,
+                snippet: result.snippet
+                    .replace(/<[^>]*>/g, '') // Remove HTML tags
+                    .replace(/&quot;/g, '"')
+                    .replace(/&amp;/g, '&')
+                    .substring(0, 100)
+            }));
+        } catch (error) {
+            console.warn('Wikipedia autocomplete failed:', error);
+            return [];
+        }
+    },
+
+    /**
+     * Check if a person is deceased by looking at their Wikipedia page
+     * @param {string} name - Person's name
+     * @returns {Promise<{isDeceased: boolean, birthYear: number|null, deathYear: number|null}>}
+     */
+    async checkIfDeceased(name) {
+        try {
+            // Search for the person first
+            const searchParams = new URLSearchParams({
+                action: 'query',
+                list: 'search',
+                srsearch: name,
+                srlimit: 1,
+                format: 'json',
+                origin: '*'
+            });
+
+            const searchResponse = await fetch(`${this.baseUrl}?${searchParams}`);
+            const searchData = await searchResponse.json();
+
+            if (!searchData.query?.search?.length) {
+                return { isDeceased: false, birthYear: null, deathYear: null, error: 'not_found' };
+            }
+
+            const pageTitle = searchData.query.search[0].title;
+
+            // Get the page extract to check for death dates
+            const extractParams = new URLSearchParams({
+                action: 'query',
+                titles: pageTitle,
+                prop: 'extracts',
+                exintro: true,
+                explaintext: true,
+                format: 'json',
+                origin: '*'
+            });
+
+            const extractResponse = await fetch(`${this.baseUrl}?${extractParams}`);
+            const extractData = await extractResponse.json();
+
+            const pages = extractData.query?.pages;
+            if (!pages) {
+                return { isDeceased: false, birthYear: null, deathYear: null, error: 'no_page' };
+            }
+
+            const pageId = Object.keys(pages)[0];
+            const extract = pages[pageId]?.extract || '';
+
+            // Wikipedia biographical articles start with: "Name (birth – death) was/is..."
+            // We need to find the FIRST parenthetical with dates, which contains lifespan
+            // Look at the first ~200 chars to find the biographical dates
+            const introSection = extract.substring(0, 300);
+
+            // Match the first parenthetical that contains birth-death pattern
+            // This handles formats like:
+            // - (1452–1519)
+            // - (May 12, 1937 – June 22, 2008)
+            // - (15 April 1452 – 2 May 1519)
+            // - (c. 1452 – 1519)
+            const lifeSpanMatch = introSection.match(/\([^)]*?(\d{4})[^)]*?[–-][^)]*?(\d{4})[^)]*?\)/);
+            if (lifeSpanMatch) {
+                const birthYear = parseInt(lifeSpanMatch[1]);
+                const deathYear = parseInt(lifeSpanMatch[2]);
+                // Sanity check: death year should be after birth year and both should be reasonable
+                if (deathYear > birthYear && birthYear > 0 && deathYear <= new Date().getFullYear()) {
+                    return { isDeceased: true, birthYear, deathYear };
+                }
+            }
+
+            // Check for BCE/BC dates (ancient figures)
+            // Pattern 1: Both years are BC - "470–399 BC" or "c. 470 – 399 BCE"
+            // BC/BCE comes AFTER the death year
+            const bcBothMatch = introSection.match(/(?:c\.?\s*)?(\d{1,4})\s*[–-]\s*(?:c\.?\s*)?(\d{1,4})\s*(BCE?|BC)/i);
+            if (bcBothMatch) {
+                const birthYear = parseInt(bcBothMatch[1]);
+                const deathYear = parseInt(bcBothMatch[2]);
+                // Sanity check: birth year should be larger (older) than death year for BC dates
+                if (birthYear > deathYear && birthYear <= 3000 && deathYear > 0) {
+                    return {
+                        isDeceased: true,
+                        birthYear: -birthYear,
+                        deathYear: -deathYear
+                    };
+                }
+            }
+
+            // Pattern 2: Mixed BC/AD dates - "c. 4 BC – AD 30" or "6 BC – AD 30/33"
+            // Birth year has BC/BCE after it, death year has AD/CE before it
+            const bcAdMatch = introSection.match(/(?:c\.?\s*)?(\d{1,4})\s*(BC|BCE)\s*[–-]\s*(AD|CE)\s*(\d{1,4})/i);
+            if (bcAdMatch) {
+                return {
+                    isDeceased: true,
+                    birthYear: -parseInt(bcAdMatch[1]),
+                    deathYear: parseInt(bcAdMatch[4])
+                };
+            }
+
+            // Check for "died" keyword
+            const diedMatch = extract.match(/died[^.]*(\d{4})/i);
+            if (diedMatch) {
+                return { isDeceased: true, birthYear: null, deathYear: parseInt(diedMatch[1]) };
+            }
+
+            // Check for "(was)" pattern which often indicates deceased
+            const wasMatch = extract.match(/was\s+(?:an?|the)\s+\w+/i);
+            // Also check if they have birth dates in a historical range
+            const oldBirthMatch = extract.match(/\((?:born\s+)?[^)]*(\d{4})[^)]*\)/);
+            if (oldBirthMatch) {
+                const birthYear = parseInt(oldBirthMatch[1]);
+                // If born before 1900, very likely deceased
+                if (birthYear < 1900) {
+                    return { isDeceased: true, birthYear, deathYear: null };
+                }
+            }
+
+            // Pattern indicating still alive
+            const alivePatterns = [
+                /\(born\s+[^)]*(\d{4})\s*\)/i,           // (born 1950) or (born January 1, 1950)
+                /\(\d{4}\s*[–-]\s*present\)/i,           // (1950-present)
+                /\bage\s+\d+\)/i,                        // age 73)
+                /\(aged?\s+\d+\)/i,                      // (aged 73)
+            ];
+
+            for (const pattern of alivePatterns) {
+                const match = extract.match(pattern);
+                if (match) {
+                    // Extract birth year if available
+                    const yearMatch = match[0].match(/(\d{4})/);
+                    const birthYear = yearMatch ? parseInt(yearMatch[1]) : null;
+                    // Only consider alive if born after 1900 (reasonable living age)
+                    if (birthYear && birthYear > 1900) {
+                        return { isDeceased: false, birthYear, deathYear: null };
+                    }
+                }
+            }
+
+            // If we can't determine and no clear patterns, mark as uncertain
+            return { isDeceased: false, birthYear: null, deathYear: null, uncertain: true };
+
+        } catch (error) {
+            console.warn('Wikipedia deceased check failed:', error);
+            return { isDeceased: false, birthYear: null, deathYear: null, error: error.message };
+        }
+    },
+
+    /**
      * Search for a person and get their biographical summary
      * @param {string} name - Person's name
      * @returns {Promise<Object|null>} Biographical info or null
